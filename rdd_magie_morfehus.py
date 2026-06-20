@@ -324,78 +324,78 @@ CATS = sorted(set(s["ca"] for s in SORTS))
 # Dans .streamlit/secrets.toml (local) ou Secrets sur Streamlit Cloud :
 #   DATABASE_URL = "postgresql://user:pwd@ep-xxx.neon.tech/neondb?sslmode=require"
 
-@st.cache_resource
 def get_conn():
-    """Connexion persistante (une seule par worker Streamlit)."""
-    return psycopg2.connect(st.secrets["DATABASE_URL"], sslmode="require")
-
-def get_cur():
-    conn = get_conn()
-    # Reconnexion automatique si la connexion est tombée
-    try:
-        conn.isolation_level  # ping léger
-    except Exception:
-        get_conn.clear()
-        conn = get_conn()
-    return conn.cursor(cursor_factory=RealDictCursor)
+    """Nouvelle connexion à chaque appel — Neon coupe les connexions inactives."""
+    return psycopg2.connect(st.secrets["DATABASE_URL"], sslmode="require",
+                            connect_timeout=10)
 
 def db_init():
     """Crée la table si elle n'existe pas encore."""
     conn = get_conn()
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS personnage (
-                id         TEXT PRIMARY KEY DEFAULT 'default',
-                pC         INTEGER NOT NULL DEFAULT 22,
-                pM         INTEGER NOT NULL DEFAULT 28,
-                sdr        INTEGER NOT NULL DEFAULT 22,
-                fat        INTEGER NOT NULL DEFAULT 0,
-                connus     JSONB   NOT NULL DEFAULT '[]',
-                log        JSONB   NOT NULL DEFAULT '[]',
-                t_hist     JSONB   NOT NULL DEFAULT '[]',
-                tmr_cases  JSONB   NOT NULL DEFAULT '{}'
-            );
-            INSERT INTO personnage (id) VALUES ('default')
-            ON CONFLICT (id) DO NOTHING;
-            ALTER TABLE personnage ADD COLUMN IF NOT EXISTS
-                tmr_cases JSONB NOT NULL DEFAULT '{}';
-        """)
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS personnage (
+                    id         TEXT PRIMARY KEY DEFAULT 'default',
+                    pC         INTEGER NOT NULL DEFAULT 22,
+                    pM         INTEGER NOT NULL DEFAULT 28,
+                    sdr        INTEGER NOT NULL DEFAULT 22,
+                    fat        INTEGER NOT NULL DEFAULT 0,
+                    connus     JSONB   NOT NULL DEFAULT '[]',
+                    log        JSONB   NOT NULL DEFAULT '[]',
+                    t_hist     JSONB   NOT NULL DEFAULT '[]',
+                    tmr_cases  JSONB   NOT NULL DEFAULT '{}'
+                );
+                INSERT INTO personnage (id) VALUES ('default')
+                ON CONFLICT (id) DO NOTHING;
+                ALTER TABLE personnage ADD COLUMN IF NOT EXISTS
+                    tmr_cases JSONB NOT NULL DEFAULT '{}';
+            """)
+        conn.commit()
+    finally:
+        conn.close()
 
 def db_load():
     """Charge l'état depuis Neon."""
     db_init()
-    with get_cur() as cur:
-        cur.execute("SELECT * FROM personnage WHERE id = 'default';")
-        row = cur.fetchone()
-    return dict(row) if row else {}
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM personnage WHERE id = 'default';")
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
 
 def db_save():
     """Persiste l'état courant dans Neon."""
     conn = get_conn()
-    with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE personnage SET
-                pC        = %s,
-                pM        = %s,
-                sdr       = %s,
-                fat       = %s,
-                connus    = %s,
-                log       = %s,
-                t_hist    = %s,
-                tmr_cases = %s
-            WHERE id = 'default';
-        """, (
-            st.session_state.pC,
-            st.session_state.pM,
-            st.session_state.sdr,
-            st.session_state.fat,
-            json.dumps(list(st.session_state.connus)),
-            json.dumps(st.session_state.log[:12]),
-            json.dumps(st.session_state.t_hist[:15]),
-            json.dumps(st.session_state.tmr_cases),
-        ))
-    conn.commit()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE personnage SET
+                    pC        = %s,
+                    pM        = %s,
+                    sdr       = %s,
+                    fat       = %s,
+                    connus    = %s,
+                    log       = %s,
+                    t_hist    = %s,
+                    tmr_cases = %s
+                WHERE id = 'default';
+            """, (
+                st.session_state.pC,
+                st.session_state.pM,
+                st.session_state.sdr,
+                st.session_state.fat,
+                json.dumps(list(st.session_state.connus)),
+                json.dumps(st.session_state.log[:12]),
+                json.dumps(st.session_state.t_hist[:15]),
+                json.dumps(st.session_state.tmr_cases),
+            ))
+        conn.commit()
+    finally:
+        conn.close()
 
 # ─── Session state (initialisé depuis Neon au premier chargement) ─────────
 def init_state():
