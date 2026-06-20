@@ -345,17 +345,20 @@ def db_init():
     with conn.cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS personnage (
-                id      TEXT PRIMARY KEY DEFAULT 'default',
-                pC      INTEGER NOT NULL DEFAULT 22,
-                pM      INTEGER NOT NULL DEFAULT 28,
-                sdr     INTEGER NOT NULL DEFAULT 22,
-                fat     INTEGER NOT NULL DEFAULT 0,
-                connus  JSONB   NOT NULL DEFAULT '[]',
-                log     JSONB   NOT NULL DEFAULT '[]',
-                t_hist  JSONB   NOT NULL DEFAULT '[]'
+                id         TEXT PRIMARY KEY DEFAULT 'default',
+                pC         INTEGER NOT NULL DEFAULT 22,
+                pM         INTEGER NOT NULL DEFAULT 28,
+                sdr        INTEGER NOT NULL DEFAULT 22,
+                fat        INTEGER NOT NULL DEFAULT 0,
+                connus     JSONB   NOT NULL DEFAULT '[]',
+                log        JSONB   NOT NULL DEFAULT '[]',
+                t_hist     JSONB   NOT NULL DEFAULT '[]',
+                tmr_cases  JSONB   NOT NULL DEFAULT '{}'
             );
             INSERT INTO personnage (id) VALUES ('default')
             ON CONFLICT (id) DO NOTHING;
+            ALTER TABLE personnage ADD COLUMN IF NOT EXISTS
+                tmr_cases JSONB NOT NULL DEFAULT '{}';
         """)
     conn.commit()
 
@@ -373,13 +376,14 @@ def db_save():
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE personnage SET
-                pC     = %s,
-                pM     = %s,
-                sdr    = %s,
-                fat    = %s,
-                connus = %s,
-                log    = %s,
-                t_hist = %s
+                pC        = %s,
+                pM        = %s,
+                sdr       = %s,
+                fat       = %s,
+                connus    = %s,
+                log       = %s,
+                t_hist    = %s,
+                tmr_cases = %s
             WHERE id = 'default';
         """, (
             st.session_state.pC,
@@ -389,6 +393,7 @@ def db_save():
             json.dumps(list(st.session_state.connus)),
             json.dumps(st.session_state.log[:12]),
             json.dumps(st.session_state.t_hist[:15]),
+            json.dumps(st.session_state.tmr_cases),
         ))
     conn.commit()
 
@@ -397,24 +402,27 @@ def init_state():
     if "db_loaded" not in st.session_state:
         try:
             row = db_load()
-            st.session_state.pC     = int(row.get("pc",  22))
-            st.session_state.pM     = int(row.get("pm",  28))
-            st.session_state.sdr    = int(row.get("sdr", 22))
-            st.session_state.fat    = int(row.get("fat",  0))
-            st.session_state.connus = set(row.get("connus") or [])
-            st.session_state.log    = list(row.get("log")   or [])
-            st.session_state.t_hist = list(row.get("t_hist") or [])
+            st.session_state.pC        = int(row.get("pc",  22))
+            st.session_state.pM        = int(row.get("pm",  28))
+            st.session_state.sdr       = int(row.get("sdr", 22))
+            st.session_state.fat       = int(row.get("fat",  0))
+            st.session_state.connus    = set(row.get("connus") or [])
+            st.session_state.log       = list(row.get("log")   or [])
+            st.session_state.t_hist    = list(row.get("t_hist") or [])
+            # tmr_cases : dict { str(sort_id) -> { "A1": 45, "B3": 60, … } }
+            raw_tc = row.get("tmr_cases") or {}
+            st.session_state.tmr_cases = {str(k): dict(v) for k, v in raw_tc.items()}
         except Exception as e:
-            # Fallback si Neon inaccessible (ex: secret manquant en local)
             st.warning(f"⚠️ Base de données inaccessible, mode hors-ligne : {e}")
-            st.session_state.pC     = 22
-            st.session_state.pM     = 28
-            st.session_state.sdr    = 22
-            st.session_state.fat    = 0
-            st.session_state.connus = set()
-            st.session_state.log    = []
-            st.session_state.t_hist = []
-        st.session_state.exp_sort = None
+            st.session_state.pC        = 22
+            st.session_state.pM        = 28
+            st.session_state.sdr       = 22
+            st.session_state.fat       = 0
+            st.session_state.connus    = set()
+            st.session_state.log       = []
+            st.session_state.t_hist    = []
+            st.session_state.tmr_cases = {}
+        st.session_state.exp_sort  = None
         st.session_state.db_loaded = True
 
 init_state()
@@ -563,6 +571,117 @@ with tab_sorts:
                     padding:10px 4px;color:#CBBCCC;font-size:12px;line-height:1.7">{s['e']}</div>""",
                     unsafe_allow_html=True)
 
+                # ── Cases TMR maîtrisées (uniquement pour les sorts connus) ──
+                if s["id"] in st.session_state.connus:
+                    sid = str(s["id"])
+                    # Toutes les cases du bon type pour ce sort
+                    sort_type = s["t"]
+                    # Cas "Variable" : on propose toutes les cases
+                    if sort_type == "Variable":
+                        cases_dispo = [
+                            f"{x}{y}" for yi, y in enumerate(TMR_Y)
+                            for xi, x in enumerate(TMR_X)
+                        ]
+                    else:
+                        cases_dispo = [
+                            f"{x}{y}" for yi, y in enumerate(TMR_Y)
+                            for xi, x in enumerate(TMR_X)
+                            if _TC_RAW[yi * 13 + xi] == sort_type
+                        ]
+
+                    cases_sort = st.session_state.tmr_cases.get(sid, {})
+                    tc_color   = TC2.get(sort_type, "#607D8B")
+
+                    st.markdown(f"""
+<div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:10px;padding-top:10px">
+  <span style="color:{tc_color};font-size:10px;font-weight:bold;letter-spacing:1px">
+    ⬡ CASES TMR MAÎTRISÉES · {sort_type.upper()}
+    ({len(cases_sort)}/{len(cases_dispo)} cases)
+  </span>
+</div>""", unsafe_allow_html=True)
+
+                    # Cases déjà ajoutées
+                    if cases_sort:
+                        pills_html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0">'
+                        for coord, pct in sorted(cases_sort.items()):
+                            # Couleur selon % : rouge→orange→vert
+                            if pct < 30:   pc_col = "#ef4444"
+                            elif pct < 60: pc_col = "#f97316"
+                            elif pct < 85: pc_col = "#eab308"
+                            else:          pc_col = "#22c55e"
+                            pills_html += (
+                                f'<span style="background:{tc_color}22;border:1px solid {tc_color}55;'
+                                f'border-radius:6px;padding:4px 8px;font-size:11px;color:{tc_color}">'
+                                f'{coord} <span style="color:{pc_col};font-weight:bold">{pct}%</span></span>'
+                            )
+                        pills_html += '</div>'
+                        st.markdown(pills_html, unsafe_allow_html=True)
+
+                        # Contrôles par case existante
+                        for coord in sorted(cases_sort.keys()):
+                            pct = cases_sort[coord]
+                            ccols = st.columns([2, 1, 1, 1, 1])
+                            with ccols[0]:
+                                # Nom de la case
+                                cx = coord[0]
+                                cy = coord[1:]
+                                if cx in TMR_X and cy in TMR_Y:
+                                    idx_c = TMR_Y.index(cy) * 13 + TMR_X.index(cx)
+                                    nom_c = _NOM_RAW[idx_c]
+                                    st.markdown(
+                                        f'<span style="color:{tc_color};font-size:11px">'
+                                        f'<b>{coord}</b>'
+                                        f'{"  " + nom_c if nom_c else ""}</span>',
+                                        unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f'<span style="color:{tc_color};font-size:11px"><b>{coord}</b></span>',
+                                                unsafe_allow_html=True)
+                            with ccols[1]:
+                                if st.button("−1", key=f"tmrc_dec_{sid}_{coord}", use_container_width=True):
+                                    new_pct = max(0, pct - 1)
+                                    st.session_state.tmr_cases.setdefault(sid, {})[coord] = new_pct
+                                    db_save(); st.rerun()
+                            with ccols[2]:
+                                if pct >= 100: pct_col = "#22c55e"
+                                elif pct >= 60: pct_col = "#eab308"
+                                else: pct_col = "#f97316"
+                                st.markdown(
+                                    f'<div style="text-align:center;color:{pct_col};font-weight:bold;'
+                                    f'font-size:14px;padding:4px">{pct}%</div>',
+                                    unsafe_allow_html=True)
+                            with ccols[3]:
+                                if st.button("+1", key=f"tmrc_inc_{sid}_{coord}", use_container_width=True):
+                                    new_pct = min(100, pct + 1)
+                                    st.session_state.tmr_cases.setdefault(sid, {})[coord] = new_pct
+                                    db_save(); st.rerun()
+                            with ccols[4]:
+                                if st.button("✕", key=f"tmrc_del_{sid}_{coord}", use_container_width=True):
+                                    st.session_state.tmr_cases.get(sid, {}).pop(coord, None)
+                                    if not st.session_state.tmr_cases.get(sid):
+                                        st.session_state.tmr_cases.pop(sid, None)
+                                    db_save(); st.rerun()
+
+                    # Sélecteur pour ajouter une nouvelle case
+                    cases_non_ajoutees = [c for c in cases_dispo if c not in cases_sort]
+                    if cases_non_ajoutees:
+                        add_cols = st.columns([3, 1])
+                        with add_cols[0]:
+                            new_case = st.selectbox(
+                                "Ajouter une case",
+                                ["—"] + cases_non_ajoutees,
+                                key=f"tmrc_add_sel_{sid}",
+                                label_visibility="collapsed",
+                            )
+                        with add_cols[1]:
+                            if st.button("＋ Ajouter", key=f"tmrc_add_btn_{sid}",
+                                         use_container_width=True, disabled=(new_case == "—")):
+                                if new_case != "—":
+                                    st.session_state.tmr_cases.setdefault(sid, {})[new_case] = 0
+                                    db_save(); st.rerun()
+                    else:
+                        st.markdown('<span style="color:#22c55e;font-size:10px">✓ Toutes les cases maîtrisées !</span>',
+                                    unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════════════════════════════════
 # RÊVE
 # ══════════════════════════════════════════════════════════════════════════
@@ -673,42 +792,220 @@ with tab_fat:
     st.markdown(leg_html, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════
-# TMR
+# DONNÉES CARTE TMR
+# ══════════════════════════════════════════════════════════════════════════
+TMR_X = ['A','B','C','D','E','F','G','H','I','J','K','L','M']
+TMR_Y = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
+
+_TC_RAW = [
+    'Cité','Désert','Désolation','Forêt','Plaines','Nécropole','Plaines','Gouffre','Collines','Sanctuaire','Désolation','Plaines','Fleuve','Collines','Cité',
+    'Plaines','Collines','Plaines','Mont','Collines','Forêt','Marais','Fleuve','Lac','Mont','Cité','Fleuve','Gouffre','Nécropole',
+    'Nécropole','Marais','Fleuve','Pont','Marais','Cité','Fleuve','Forêt','Mont','Marais','Pont','Lac','Désert','Forêt','Plaines',
+    'Fleuve','Cité','Gouffre','Lac','Fleuve','Fleuve','Plaines','Cité','Pont','Fleuve','Désolation','Collines','Cité','Sanctuaire',
+    'Mont','Plaines','Forêt','Plaines','Mont','Sanctuaire','Forêt','Plaines','Fleuve','Gouffre','Lac','Mont','Plaines','Mont','Forêt',
+    'Cité','Lac','Fleuve','Fleuve','Cité','Fleuve','Fleuve','Lac','Plaines','Marais','Cité','Nécropole','Forêt','Plaines',
+    'Désolation','Marais','Gouffre','Sanctuaire','Pont','Marais','Cité','Plaines','Désert','Cité','Fleuve','Plaines','Plaines','Désert','Plaines',
+    'Lac','Collines','Forêt','Plaines','Désert','Mont','Gouffre','Forêt','Collines','Plaines','Fleuve','Collines','Désolation','Plaines',
+    'Plaines','Forêt','Mont','Plaines','Désolation','Nécropole','Plaines','Fleuve','Fleuve','Lac','Pont','Gouffre','Mont','Cité','Mont',
+    'Mont','Désert','Cité','Collines','Marais','Lac','Fleuve','Mont','Marais','Fleuve','Plaines','Cité','Gouffre','Désert',
+    'Cité','Forêt','Plaines','Pont','Fleuve','Désolation','Cité','Désert','Sanctuaire','Plaines','Cité','Désolation','Forêt','Nécropole','Collines',
+    'Fleuve','Fleuve','Lac','Sanctuaire','Collines','Forêt','Gouffre','Mont','Collines','Désert','Collines','Plaines','Mont','Plaines',
+    'Cité','Nécropole','Mont','Gouffre','Cité','Désolation','Désert','Plaines','Nécropole','Forêt','Cité','Collines','Plaines','Désolation','Cité',
+]
+
+_NOM_RAW = [
+    'VIDE','de MIEUX','de DEMAIN','de FALCONAX','de TRILKH','de ZNIAK','de l\'ARC','de SHOK','de KORREX','d\'OLIS','d\'HIER','SAGES','','de STOLIS','de MIELH',
+    'd\'ASSORH','de DAWELL','de RUBEGA','CRÂNEURS','de TANEGV','de BUST','BLUANTS','','de LUCRE','SALÉS','de BRILZ','','des LITIGES','de GORLO',
+    'de KROAK','GLIGNANTS','','de GIOLI','FLOUANTS','PAVOIS','','TURMIDE','TUMÉFIÉS','de DOM','de ROI','de FRICASA','de NEIGE','de BISSAM','de TOUÉ',
+    '','de FROST','d\'OKI','de FOAM','','','d\'AFFA','d\'OLAK','d\'ORX','','de PARTOUT','d\'HUAÏ','SORDIDE','PLAT',
+    'de KANAÏ','de FIASK','d\'ESTOUBH','d\'ORTI','BRÛLANTS','de PLAINE','de GLUSKS','d\'IOLISE','','de JUNK','de GLINSTER','AJOURÉS','de XNEZ','de QUATH','des FURIES',
+    'GLAUQUE','de MISÈRE','','','de PANOPLE','','','des CHATS','de FOE','ZULTANTS','de NOAPE','de THROAT','des CRIS','BRISÉES',
+    'de JAMAIS','NUISANTS','de SUN','BLANC','d\'IK','GLUTANTS','de TERWA','SANS JOIE','de SEL','de SERGAL','','de LUFMIL','CALCAIRES','de SEK','des SOUPIRS',
+    'd\'ANTICALME','de PARTA','de GANNA','de PSARK','de KRANE','GURDES','de KAFPA','d\'OURF','de NOIRSEUL','NOIRES','','de TOOTH','de RIEN','BLANCHES',
+    'GRISES','FADE','GRINÇANTS','de XIAX','de TOUJOURS','de XOTAR','de TROO','','','WANITO','de YALM','ABIMEUX','BIGLEUX','DESTITUÉE','des DRAGÉES',
+    'FAINÉANTS','de POLY','VENIN','d\'ENCRE','de JAB','d\'IAUPE','','BARASK','GRONCHANTS','','de MILTIAR','FOLLE','de GROMPH','de SANIK',
+    'd\'ONKAUSE','TAMÉE','de DOIS','de FAH','','de POOR','de KOLIX','de FUMÉE','NOIR','JAUNES','TONNERRE','d\'AMOUR','de KLUTH','d\'ANTINÉAR','POURPRES',
+    '','','LAINEUX','MAUVE','SUAVES','GUEUSE','d\'ÉPISOPHE','TAVELÉS','CORNUES','de NICROP','de KOL','VENTEUSES','DORMANTS','de JISLITH',
+    'JALOUSE','de LOGOS','de VDAH','GRISANT','RIMARDE','de PRESQUE','de LAVE','LAVÉES','de ZONAR','de JAJOU','CRAPAUD','RÉVULSANTES','d\'ANJOU','d\'APRÈS','de KLANA',
+]
+
+# Normalisation clés : "Mont" dans la carte → "Mont" dans TC
+_TC_NORM = {"Mont": "Mont"}  # identique, déjà normalisé
+
+def tmr_idx(x_letter, y_num):
+    """Retourne l'index dans les tableaux (0-based), x=colonne A-M, y=ligne 1-15."""
+    xi = TMR_X.index(x_letter)
+    yi = int(y_num) - 1
+    return yi * 13 + xi
+
+def tmr_cell(x_letter, y_num):
+    idx  = tmr_idx(x_letter, y_num)
+    typ  = _TC_RAW[idx]
+    nom  = _NOM_RAW[idx]
+    # Construire le nom complet de la case
+    full = f"{typ}s {nom}".strip() if nom else typ
+    return {"type": typ, "nom": nom, "full": full, "x": x_letter, "y": y_num, "idx": idx}
+
+# Couleurs par type (version normalisée "Mont" comme dans _TC_RAW)
+TC2 = {
+    "Cité":       "#C9A227",
+    "Désert":     "#C87941",
+    "Désolation": "#6D4C41",
+    "Forêt":      "#2A7D2A",
+    "Mont":       "#7B8D9A",
+    "Sanctuaire": "#8B2FC9",
+    "Nécropole":  "#5C2D91",
+    "Pont":       "#C84315",
+    "Fleuve":     "#1565C0",
+    "Lac":        "#0288D1",
+    "Plaines":    "#4CAF50",
+    "Collines":   "#8C9B21",
+    "Gouffre":    "#283593",
+    "Marais":     "#2E7D32",
+}
+
+def build_tmr_svg(sel_x=None, sel_y=None, hist_coords=None):
+    """Génère le SVG de la carte TMR 13×15."""
+    CW, CH = 46, 32   # largeur/hauteur d'une cellule
+    OX, OY = 28, 22   # offset pour les labels
+    W = OX + 13 * CW + 4
+    H = OY + 15 * CH + 4
+
+    hist_set = set()
+    if hist_coords:
+        for hc in hist_coords:
+            if len(hc) >= 2 and hc[0] in TMR_X:
+                yn = hc[1:]
+                if yn in TMR_Y:
+                    hist_set.add((hc[0], yn))
+
+    lines = [f'<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="font-family:monospace">']
+    # Fond
+    lines.append(f'<rect width="{W}" height="{H}" fill="#050A14"/>')
+
+    # Colonnes labels (A-M)
+    for xi, lx in enumerate(TMR_X):
+        cx = OX + xi * CW + CW // 2
+        lines.append(f'<text x="{cx}" y="14" text-anchor="middle" fill="#3A5070" font-size="10">{lx}</text>')
+
+    # Lignes labels (1-15)
+    for yi, ly in enumerate(TMR_Y):
+        cy = OY + yi * CH + CH // 2 + 4
+        lines.append(f'<text x="13" y="{cy}" text-anchor="middle" fill="#3A5070" font-size="10">{ly}</text>')
+
+    # Cellules
+    for yi, yv in enumerate(TMR_Y):
+        for xi, xv in enumerate(TMR_X):
+            idx  = yi * 13 + xi
+            typ  = _TC_RAW[idx]
+            nom  = _NOM_RAW[idx]
+            col  = TC2.get(typ, "#333")
+            rx   = OX + xi * CW
+            ry   = OY + yi * CH
+
+            is_sel  = (xv == sel_x and yv == sel_y)
+            is_hist = (xv, yv) in hist_set
+
+            fill   = col + "55" if not is_sel else col + "CC"
+            stroke = "#C0913A" if is_sel else (col + "AA" if is_hist else col + "44")
+            sw     = 2 if (is_sel or is_hist) else 1
+
+            lines.append(
+                f'<rect x="{rx+1}" y="{ry+1}" width="{CW-2}" height="{CH-2}" '
+                f'rx="3" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>'
+            )
+            # Label type (3 premières lettres)
+            abr = typ[:3].upper()
+            lines.append(
+                f'<text x="{rx+CW//2}" y="{ry+CH//2+1}" text-anchor="middle" '
+                f'dominant-baseline="middle" fill="{col}" font-size="8" font-weight="bold">{abr}</text>'
+            )
+            # Étoile si hist
+            if is_hist and not is_sel:
+                lines.append(
+                    f'<text x="{rx+CW-5}" y="{ry+9}" text-anchor="middle" fill="#C0913A" font-size="8">★</text>'
+                )
+            # Pion position actuelle
+            if is_sel:
+                lines.append(
+                    f'<circle cx="{rx+CW//2}" cy="{ry+CH//2}" r="7" fill="#C0913A" opacity="0.9"/>'
+                )
+                lines.append(
+                    f'<text x="{rx+CW//2}" y="{ry+CH//2+4}" text-anchor="middle" fill="#050A14" font-size="9" font-weight="bold">⬡</text>'
+                )
+
+    lines.append('</svg>')
+    return '\n'.join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TMR (onglet)
 # ══════════════════════════════════════════════════════════════════════════
 with tab_tmr:
-    st.markdown("#### Mémoriser une position TMR")
 
-    t_type = st.selectbox("Type de case", TL, key="tmr_type")
-    t_coords = st.text_input("Coordonnées (ex : J4, A15…)", key="tmr_coords")
-    t_note   = st.text_area("Note (rencontre, sort, danger…)", key="tmr_note", height=80)
+    col_map, col_panel = st.columns([3, 2])
 
-    if st.button("⬡ Mémoriser cette case", use_container_width=True):
-        entry = {
-            "tp": t_type,
-            "co": t_coords.strip(),
-            "no": t_note.strip(),
-            "t":  datetime.now().strftime("%d/%m %H:%M"),
-        }
-        st.session_state.t_hist = [entry] + st.session_state.t_hist[:14]
-        db_save()
-        st.rerun()
+    with col_panel:
+        st.markdown("#### ⬡ Position TMR")
 
-    st.divider()
-    st.markdown("**Dernières positions**")
+        sel_x = st.selectbox("Colonne", TMR_X, key="tmr_sel_x")
+        sel_y = st.selectbox("Ligne",   TMR_Y, key="tmr_sel_y")
 
-    if not st.session_state.t_hist:
-        st.markdown('<div style="color:#3A5070;text-align:center;padding:20px">Aucune position mémorisée.</div>',
-                    unsafe_allow_html=True)
-    else:
-        for i, e in enumerate(st.session_state.t_hist):
-            c = TC.get(e["tp"], "#607D8B")
-            info = e.get("co", "")
-            if e.get("no"): info += f"  —  {e['no'][:60]}"
-            badge = ' <span style="color:#C0913A;font-size:9px;border:1px solid #C0913A33;border-radius:3px;padding:1px 4px">DERNIÈRE</span>' if i == 0 else ""
-            st.markdown(f"""
-<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
-     border-radius:8px;padding:8px 12px;margin-bottom:6px">
-  <span style="color:{c};font-weight:bold;font-size:11px">{e['tp']}</span>{badge}
-  <span style="color:#E8DCC8;margin-left:10px;font-size:11px">{info}</span>
-  <span style="color:#3A5070;float:right;font-size:9px">{e.get('t','')}</span>
+        # Info case sélectionnée
+        cell = tmr_cell(sel_x, sel_y)
+        tc   = TC2.get(cell["type"], "#888")
+        st.markdown(f"""
+<div style="background:{tc}18;border:1px solid {tc}44;border-radius:8px;padding:10px 14px;margin:8px 0">
+  <div style="color:{tc};font-weight:bold;font-size:13px">{cell['type']}</div>
+  <div style="color:#E8DCC8;font-size:11px;margin-top:2px">{cell['nom'] or '—'}</div>
+  <div style="color:#3A5070;font-size:9px;margin-top:4px">{sel_x}{sel_y} · case {cell['idx']+1}</div>
 </div>""", unsafe_allow_html=True)
+
+        t_note = st.text_area("Note (rencontre, sort, danger…)", key="tmr_note", height=72)
+
+        if st.button("⬡ Mémoriser cette case", use_container_width=True):
+            entry = {
+                "tp": cell["type"],
+                "co": f"{sel_x}{sel_y}",
+                "no": t_note.strip(),
+                "t":  datetime.now().strftime("%d/%m %H:%M"),
+            }
+            st.session_state.t_hist = [entry] + st.session_state.t_hist[:14]
+            db_save()
+            st.rerun()
+
+        st.divider()
+        st.markdown("**Historique**")
+        if not st.session_state.t_hist:
+            st.markdown('<div style="color:#3A5070;font-size:11px">Aucune position mémorisée.</div>',
+                        unsafe_allow_html=True)
+        else:
+            for i, e in enumerate(st.session_state.t_hist):
+                c    = TC2.get(e["tp"], "#607D8B")
+                info = e.get("no", "")[:50]
+                badge = "★ " if i == 0 else ""
+                st.markdown(
+                    f'<div style="border-left:3px solid {c};padding:3px 8px;margin-bottom:4px;font-size:11px">'
+                    f'<span style="color:{c};font-weight:bold">{badge}{e.get("co","?")} · {e["tp"]}</span>'
+                    f'{"<br><span style=\\'color:#8899AA\\'>" + info + "</span>" if info else ""}'
+                    f'<span style="color:#3A5070;float:right;font-size:9px">{e.get("t","")}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+    with col_map:
+        st.markdown("#### Carte des Terres Médianes du Rêve")
+        # Coordonnées historiques pour marquage
+        hist_coords = [e.get("co","") for e in st.session_state.t_hist]
+        svg = build_tmr_svg(
+            sel_x=st.session_state.get("tmr_sel_x", "A"),
+            sel_y=st.session_state.get("tmr_sel_y", "1"),
+            hist_coords=hist_coords,
+        )
+        st.markdown(svg, unsafe_allow_html=True)
+
+        # Légende compacte
+        leg = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">'
+        for typ, col in TC2.items():
+            leg += f'<span style="background:{col}33;border:1px solid {col}66;color:{col};border-radius:4px;padding:2px 6px;font-size:9px">{typ[:3].upper()} {typ}</span>'
+        leg += '</div>'
+        st.markdown(leg, unsafe_allow_html=True)
