@@ -319,6 +319,68 @@ SORTS = [
 
 CATS = sorted(set(s["ca"] for s in SORTS))
 
+TMR_X = ['A','B','C','D','E','F','G','H','I','J','K','L','M']
+TMR_Y = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
+# La grille a 189 cases : 14 lignes complètes (A-M) + 1 ligne partielle (A15-G15)
+TMR_TOTAL = 189
+
+def tmr_valid(xi, yi):
+    """Retourne True si la case (xi, yi) existe dans la grille (0-indexed)."""
+    return yi * 13 + xi < TMR_TOTAL
+
+_TC_RAW = [
+    'Cité','Désert','Désolation','Forêt','Plaines','Nécropole','Plaines','Gouffre','Collines','Sanctuaire','Désolation','Plaines','Fleuve','Collines','Cité',
+    'Plaines','Collines','Plaines','Mont','Collines','Forêt','Marais','Fleuve','Lac','Mont','Cité','Fleuve','Gouffre','Nécropole',
+    'Nécropole','Marais','Fleuve','Pont','Marais','Cité','Fleuve','Forêt','Mont','Marais','Pont','Lac','Désert','Forêt','Plaines',
+    'Fleuve','Cité','Gouffre','Lac','Fleuve','Fleuve','Plaines','Cité','Pont','Fleuve','Désolation','Collines','Cité','Sanctuaire',
+    'Mont','Plaines','Forêt','Plaines','Mont','Sanctuaire','Forêt','Plaines','Fleuve','Gouffre','Lac','Mont','Plaines','Mont','Forêt',
+    'Cité','Lac','Fleuve','Fleuve','Cité','Fleuve','Fleuve','Lac','Plaines','Marais','Cité','Nécropole','Forêt','Plaines',
+    'Désolation','Marais','Gouffre','Sanctuaire','Pont','Marais','Cité','Plaines','Désert','Cité','Fleuve','Plaines','Plaines','Désert','Plaines',
+    'Lac','Collines','Forêt','Plaines','Désert','Mont','Gouffre','Forêt','Collines','Plaines','Fleuve','Collines','Désolation','Plaines',
+    'Plaines','Forêt','Mont','Plaines','Désolation','Nécropole','Plaines','Fleuve','Fleuve','Lac','Pont','Gouffre','Mont','Cité','Mont',
+    'Mont','Désert','Cité','Collines','Marais','Lac','Fleuve','Mont','Marais','Fleuve','Plaines','Cité','Gouffre','Désert',
+    'Cité','Forêt','Plaines','Pont','Fleuve','Désolation','Cité','Désert','Sanctuaire','Plaines','Cité','Désolation','Forêt','Nécropole','Collines',
+    'Fleuve','Fleuve','Lac','Sanctuaire','Collines','Forêt','Gouffre','Mont','Collines','Désert','Collines','Plaines','Mont','Plaines',
+    'Cité','Nécropole','Mont','Gouffre','Cité','Désolation','Désert','Plaines','Nécropole','Forêt','Cité','Collines','Plaines','Désolation','Cité',
+]
+
+_NOM_RAW = [
+    'VIDE','de MIEUX','de DEMAIN','de FALCONAX','de TRILKH','de ZNIAK','de l\'ARC','de SHOK','de KORREX','d\'OLIS','d\'HIER','SAGES','','de STOLIS','de MIELH',
+    'd\'ASSORH','de DAWELL','de RUBEGA','CRÂNEURS','de TANEGV','de BUST','BLUANTS','','de LUCRE','SALÉS','de BRILZ','','des LITIGES','de GORLO',
+    'de KROAK','GLIGNANTS','','de GIOLI','FLOUANTS','PAVOIS','','TURMIDE','TUMÉFIÉS','de DOM','de ROI','de FRICASA','de NEIGE','de BISSAM','de TOUÉ',
+    '','de FROST','d\'OKI','de FOAM','','','d\'AFFA','d\'OLAK','d\'ORX','','de PARTOUT','d\'HUAÏ','SORDIDE','PLAT',
+    'de KANAÏ','de FIASK','d\'ESTOUBH','d\'ORTI','BRÛLANTS','de PLAINE','de GLUSKS','d\'IOLISE','','de JUNK','de GLINSTER','AJOURÉS','de XNEZ','de QUATH','des FURIES',
+    'GLAUQUE','de MISÈRE','','','de PANOPLE','','','des CHATS','de FOE','ZULTANTS','de NOAPE','de THROAT','des CRIS','BRISÉES',
+    'de JAMAIS','NUISANTS','de SUN','BLANC','d\'IK','GLUTANTS','de TERWA','SANS JOIE','de SEL','de SERGAL','','de LUFMIL','CALCAIRES','de SEK','des SOUPIRS',
+    'd\'ANTICALME','de PARTA','de GANNA','de PSARK','de KRANE','GURDES','de KAFPA','d\'OURF','de NOIRSEUL','NOIRES','','de TOOTH','de RIEN','BLANCHES',
+    'GRISES','FADE','GRINÇANTS','de XIAX','de TOUJOURS','de XOTAR','de TROO','','','WANITO','de YALM','ABIMEUX','BIGLEUX','DESTITUÉE','des DRAGÉES',
+    'FAINÉANTS','de POLY','VENIN','d\'ENCRE','de JAB','d\'IAUPE','','BARASK','GRONCHANTS','','de MILTIAR','FOLLE','de GROMPH','de SANIK',
+    'd\'ONKAUSE','TAMÉE','de DOIS','de FAH','','de POOR','de KOLIX','de FUMÉE','NOIR','JAUNES','TONNERRE','d\'AMOUR','de KLUTH','d\'ANTINÉAR','POURPRES',
+    '','','LAINEUX','MAUVE','SUAVES','GUEUSE','d\'ÉPISOPHE','TAVELÉS','CORNUES','de NICROP','de KOL','VENTEUSES','DORMANTS','de JISLITH',
+    'JALOUSE','de LOGOS','de VDAH','GRISANT','RIMARDE','de PRESQUE','de LAVE','LAVÉES','de ZONAR','de JAJOU','CRAPAUD','RÉVULSANTES','d\'ANJOU','d\'APRÈS','de KLANA',
+]
+
+# Normalisation clés : "Mont" dans la carte → "Mont" dans TC
+_TC_NORM = {"Mont": "Mont"}  # identique, déjà normalisé
+
+def tmr_idx(x_letter, y_num):
+    """Retourne l'index dans les tableaux (0-based), x=colonne A-M, y=ligne 1-15."""
+    xi = TMR_X.index(x_letter)
+    yi = int(y_num) - 1
+    return yi * 13 + xi
+
+def tmr_cell(x_letter, y_num):
+    xi = TMR_X.index(x_letter)
+    yi = int(y_num) - 1
+    if not tmr_valid(xi, yi):
+        return {"type": "—", "nom": "", "full": "Case inexistante", "x": x_letter, "y": y_num, "idx": -1}
+    idx  = yi * 13 + xi
+    typ  = _TC_RAW[idx]
+    nom  = _NOM_RAW[idx]
+    full = f"{typ}s {nom}".strip() if nom else typ
+    return {"type": typ, "nom": nom, "full": full, "x": x_letter, "y": y_num, "idx": idx}
+
+
 # ─── Neon / PostgreSQL ────────────────────────────────────────────────────
 # La connexion string est lue depuis st.secrets["DATABASE_URL"]
 # Dans .streamlit/secrets.toml (local) ou Secrets sur Streamlit Cloud :
@@ -795,67 +857,6 @@ with tab_fat:
 # ══════════════════════════════════════════════════════════════════════════
 # DONNÉES CARTE TMR
 # ══════════════════════════════════════════════════════════════════════════
-TMR_X = ['A','B','C','D','E','F','G','H','I','J','K','L','M']
-TMR_Y = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
-# La grille a 189 cases : 14 lignes complètes (A-M) + 1 ligne partielle (A15-G15)
-TMR_TOTAL = 189
-
-def tmr_valid(xi, yi):
-    """Retourne True si la case (xi, yi) existe dans la grille (0-indexed)."""
-    return yi * 13 + xi < TMR_TOTAL
-
-_TC_RAW = [
-    'Cité','Désert','Désolation','Forêt','Plaines','Nécropole','Plaines','Gouffre','Collines','Sanctuaire','Désolation','Plaines','Fleuve','Collines','Cité',
-    'Plaines','Collines','Plaines','Mont','Collines','Forêt','Marais','Fleuve','Lac','Mont','Cité','Fleuve','Gouffre','Nécropole',
-    'Nécropole','Marais','Fleuve','Pont','Marais','Cité','Fleuve','Forêt','Mont','Marais','Pont','Lac','Désert','Forêt','Plaines',
-    'Fleuve','Cité','Gouffre','Lac','Fleuve','Fleuve','Plaines','Cité','Pont','Fleuve','Désolation','Collines','Cité','Sanctuaire',
-    'Mont','Plaines','Forêt','Plaines','Mont','Sanctuaire','Forêt','Plaines','Fleuve','Gouffre','Lac','Mont','Plaines','Mont','Forêt',
-    'Cité','Lac','Fleuve','Fleuve','Cité','Fleuve','Fleuve','Lac','Plaines','Marais','Cité','Nécropole','Forêt','Plaines',
-    'Désolation','Marais','Gouffre','Sanctuaire','Pont','Marais','Cité','Plaines','Désert','Cité','Fleuve','Plaines','Plaines','Désert','Plaines',
-    'Lac','Collines','Forêt','Plaines','Désert','Mont','Gouffre','Forêt','Collines','Plaines','Fleuve','Collines','Désolation','Plaines',
-    'Plaines','Forêt','Mont','Plaines','Désolation','Nécropole','Plaines','Fleuve','Fleuve','Lac','Pont','Gouffre','Mont','Cité','Mont',
-    'Mont','Désert','Cité','Collines','Marais','Lac','Fleuve','Mont','Marais','Fleuve','Plaines','Cité','Gouffre','Désert',
-    'Cité','Forêt','Plaines','Pont','Fleuve','Désolation','Cité','Désert','Sanctuaire','Plaines','Cité','Désolation','Forêt','Nécropole','Collines',
-    'Fleuve','Fleuve','Lac','Sanctuaire','Collines','Forêt','Gouffre','Mont','Collines','Désert','Collines','Plaines','Mont','Plaines',
-    'Cité','Nécropole','Mont','Gouffre','Cité','Désolation','Désert','Plaines','Nécropole','Forêt','Cité','Collines','Plaines','Désolation','Cité',
-]
-
-_NOM_RAW = [
-    'VIDE','de MIEUX','de DEMAIN','de FALCONAX','de TRILKH','de ZNIAK','de l\'ARC','de SHOK','de KORREX','d\'OLIS','d\'HIER','SAGES','','de STOLIS','de MIELH',
-    'd\'ASSORH','de DAWELL','de RUBEGA','CRÂNEURS','de TANEGV','de BUST','BLUANTS','','de LUCRE','SALÉS','de BRILZ','','des LITIGES','de GORLO',
-    'de KROAK','GLIGNANTS','','de GIOLI','FLOUANTS','PAVOIS','','TURMIDE','TUMÉFIÉS','de DOM','de ROI','de FRICASA','de NEIGE','de BISSAM','de TOUÉ',
-    '','de FROST','d\'OKI','de FOAM','','','d\'AFFA','d\'OLAK','d\'ORX','','de PARTOUT','d\'HUAÏ','SORDIDE','PLAT',
-    'de KANAÏ','de FIASK','d\'ESTOUBH','d\'ORTI','BRÛLANTS','de PLAINE','de GLUSKS','d\'IOLISE','','de JUNK','de GLINSTER','AJOURÉS','de XNEZ','de QUATH','des FURIES',
-    'GLAUQUE','de MISÈRE','','','de PANOPLE','','','des CHATS','de FOE','ZULTANTS','de NOAPE','de THROAT','des CRIS','BRISÉES',
-    'de JAMAIS','NUISANTS','de SUN','BLANC','d\'IK','GLUTANTS','de TERWA','SANS JOIE','de SEL','de SERGAL','','de LUFMIL','CALCAIRES','de SEK','des SOUPIRS',
-    'd\'ANTICALME','de PARTA','de GANNA','de PSARK','de KRANE','GURDES','de KAFPA','d\'OURF','de NOIRSEUL','NOIRES','','de TOOTH','de RIEN','BLANCHES',
-    'GRISES','FADE','GRINÇANTS','de XIAX','de TOUJOURS','de XOTAR','de TROO','','','WANITO','de YALM','ABIMEUX','BIGLEUX','DESTITUÉE','des DRAGÉES',
-    'FAINÉANTS','de POLY','VENIN','d\'ENCRE','de JAB','d\'IAUPE','','BARASK','GRONCHANTS','','de MILTIAR','FOLLE','de GROMPH','de SANIK',
-    'd\'ONKAUSE','TAMÉE','de DOIS','de FAH','','de POOR','de KOLIX','de FUMÉE','NOIR','JAUNES','TONNERRE','d\'AMOUR','de KLUTH','d\'ANTINÉAR','POURPRES',
-    '','','LAINEUX','MAUVE','SUAVES','GUEUSE','d\'ÉPISOPHE','TAVELÉS','CORNUES','de NICROP','de KOL','VENTEUSES','DORMANTS','de JISLITH',
-    'JALOUSE','de LOGOS','de VDAH','GRISANT','RIMARDE','de PRESQUE','de LAVE','LAVÉES','de ZONAR','de JAJOU','CRAPAUD','RÉVULSANTES','d\'ANJOU','d\'APRÈS','de KLANA',
-]
-
-# Normalisation clés : "Mont" dans la carte → "Mont" dans TC
-_TC_NORM = {"Mont": "Mont"}  # identique, déjà normalisé
-
-def tmr_idx(x_letter, y_num):
-    """Retourne l'index dans les tableaux (0-based), x=colonne A-M, y=ligne 1-15."""
-    xi = TMR_X.index(x_letter)
-    yi = int(y_num) - 1
-    return yi * 13 + xi
-
-def tmr_cell(x_letter, y_num):
-    xi = TMR_X.index(x_letter)
-    yi = int(y_num) - 1
-    if not tmr_valid(xi, yi):
-        return {"type": "—", "nom": "", "full": "Case inexistante", "x": x_letter, "y": y_num, "idx": -1}
-    idx  = yi * 13 + xi
-    typ  = _TC_RAW[idx]
-    nom  = _NOM_RAW[idx]
-    full = f"{typ}s {nom}".strip() if nom else typ
-    return {"type": typ, "nom": nom, "full": full, "x": x_letter, "y": y_num, "idx": idx}
-
 # Couleurs par type (version normalisée "Mont" comme dans _TC_RAW)
 TC2 = {
     "Cité":       "#C9A227",
