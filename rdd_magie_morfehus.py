@@ -8,6 +8,8 @@ import streamlit as st
 import json
 import math
 from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # ─── Configuration ────────────────────────────────────────────────────────
 st.set_page_config(
@@ -317,16 +319,103 @@ SORTS = [
 
 CATS = sorted(set(s["ca"] for s in SORTS))
 
-# ─── Session state ────────────────────────────────────────────────────────
+# ─── Neon / PostgreSQL ────────────────────────────────────────────────────
+# La connexion string est lue depuis st.secrets["DATABASE_URL"]
+# Dans .streamlit/secrets.toml (local) ou Secrets sur Streamlit Cloud :
+#   DATABASE_URL = "postgresql://user:pwd@ep-xxx.neon.tech/neondb?sslmode=require"
+
+@st.cache_resource
+def get_conn():
+    """Connexion persistante (une seule par worker Streamlit)."""
+    return psycopg2.connect(st.secrets["DATABASE_URL"], sslmode="require")
+
+def get_cur():
+    conn = get_conn()
+    # Reconnexion automatique si la connexion est tombée
+    try:
+        conn.isolation_level  # ping léger
+    except Exception:
+        get_conn.clear()
+        conn = get_conn()
+    return conn.cursor(cursor_factory=RealDictCursor)
+
+def db_init():
+    """Crée la table si elle n'existe pas encore."""
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS personnage (
+                id      TEXT PRIMARY KEY DEFAULT 'default',
+                pC      INTEGER NOT NULL DEFAULT 22,
+                pM      INTEGER NOT NULL DEFAULT 28,
+                sdr     INTEGER NOT NULL DEFAULT 22,
+                fat     INTEGER NOT NULL DEFAULT 0,
+                connus  JSONB   NOT NULL DEFAULT '[]',
+                log     JSONB   NOT NULL DEFAULT '[]',
+                t_hist  JSONB   NOT NULL DEFAULT '[]'
+            );
+            INSERT INTO personnage (id) VALUES ('default')
+            ON CONFLICT (id) DO NOTHING;
+        """)
+    conn.commit()
+
+def db_load():
+    """Charge l'état depuis Neon."""
+    db_init()
+    with get_cur() as cur:
+        cur.execute("SELECT * FROM personnage WHERE id = 'default';")
+        row = cur.fetchone()
+    return dict(row) if row else {}
+
+def db_save():
+    """Persiste l'état courant dans Neon."""
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE personnage SET
+                pC     = %s,
+                pM     = %s,
+                sdr    = %s,
+                fat    = %s,
+                connus = %s,
+                log    = %s,
+                t_hist = %s
+            WHERE id = 'default';
+        """, (
+            st.session_state.pC,
+            st.session_state.pM,
+            st.session_state.sdr,
+            st.session_state.fat,
+            json.dumps(list(st.session_state.connus)),
+            json.dumps(st.session_state.log[:12]),
+            json.dumps(st.session_state.t_hist[:15]),
+        ))
+    conn.commit()
+
+# ─── Session state (initialisé depuis Neon au premier chargement) ─────────
 def init_state():
-    defaults = {
-        "pC": 22, "pM": 28, "sdr": 22, "fat": 0,
-        "connus": set(), "log": [], "t_hist": [],
-        "exp_sort": None,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+    if "db_loaded" not in st.session_state:
+        try:
+            row = db_load()
+            st.session_state.pC     = int(row.get("pc",  22))
+            st.session_state.pM     = int(row.get("pm",  28))
+            st.session_state.sdr    = int(row.get("sdr", 22))
+            st.session_state.fat    = int(row.get("fat",  0))
+            st.session_state.connus = set(row.get("connus") or [])
+            st.session_state.log    = list(row.get("log")   or [])
+            st.session_state.t_hist = list(row.get("t_hist") or [])
+        except Exception as e:
+            # Fallback si Neon inaccessible (ex: secret manquant en local)
+            st.warning(f"⚠️ Base de données inaccessible, mode hors-ligne : {e}")
+            st.session_state.pC     = 22
+            st.session_state.pM     = 28
+            st.session_state.sdr    = 22
+            st.session_state.fat    = 0
+            st.session_state.connus = set()
+            st.session_state.log    = []
+            st.session_state.t_hist = []
+        st.session_state.exp_sort = None
+        st.session_state.db_loaded = True
 
 init_state()
 
@@ -355,6 +444,7 @@ def mod_pdr(delta, label):
         "t": datetime.now().strftime("%H:%M"),
     }
     st.session_state.log = [entry] + st.session_state.log[:11]
+    db_save()
 
 # ─── En-tête ──────────────────────────────────────────────────────────────
 fn  = get_fn(st.session_state.fat)
@@ -450,6 +540,7 @@ with tab_sorts:
                         st.session_state.connus.discard(s["id"])
                     else:
                         st.session_state.connus.add(s["id"])
+                    db_save()
                     st.rerun()
             with btn_cols[2]:
                 if isinstance(s["c"], int) and s["c"] > 0:
@@ -520,12 +611,12 @@ with tab_reve:
         new_pm = st.number_input("Maximum PdR", min_value=1, max_value=100,
                                   value=st.session_state.pM, step=1)
         if new_pm != st.session_state.pM:
-            st.session_state.pM = new_pm; st.rerun()
+            st.session_state.pM = new_pm; db_save(); st.rerun()
     with col_b:
         new_sdr = st.number_input("Seuil de Rêve", min_value=0, max_value=100,
                                    value=st.session_state.sdr, step=1)
         if new_sdr != st.session_state.sdr:
-            st.session_state.sdr = new_sdr; st.rerun()
+            st.session_state.sdr = new_sdr; db_save(); st.rerun()
 
     # Historique
     if st.session_state.log:
@@ -565,13 +656,13 @@ with tab_fat:
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("＋ 1 segment", use_container_width=True):
-            st.session_state.fat = min(len(SI)-1, fat+1); st.rerun()
+            st.session_state.fat = min(len(SI)-1, fat+1); db_save(); st.rerun()
     with col2:
         if st.button("－ 1 segment", use_container_width=True, disabled=fat==0):
-            st.session_state.fat = max(0, fat-1); st.rerun()
+            st.session_state.fat = max(0, fat-1); db_save(); st.rerun()
     with col3:
         if st.button("Repos complet", use_container_width=True, disabled=fat==0):
-            st.session_state.fat = 0; st.rerun()
+            st.session_state.fat = 0; db_save(); st.rerun()
 
     # Légende
     st.markdown("---")
@@ -599,6 +690,7 @@ with tab_tmr:
             "t":  datetime.now().strftime("%d/%m %H:%M"),
         }
         st.session_state.t_hist = [entry] + st.session_state.t_hist[:14]
+        db_save()
         st.rerun()
 
     st.divider()
