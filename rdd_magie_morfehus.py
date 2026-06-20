@@ -380,6 +380,100 @@ def tmr_cell(x_letter, y_num):
     full = f"{typ}s {nom}".strip() if nom else typ
     return {"type": typ, "nom": nom, "full": full, "x": x_letter, "y": y_num, "idx": idx}
 
+# Couleurs par type (version normalisée "Mont" comme dans _TC_RAW)
+TC2 = {
+    "Cité":       "#C9A227",
+    "Désert":     "#C87941",
+    "Désolation": "#6D4C41",
+    "Forêt":      "#2A7D2A",
+    "Mont":       "#7B8D9A",
+    "Sanctuaire": "#8B2FC9",
+    "Nécropole":  "#5C2D91",
+    "Pont":       "#C84315",
+    "Fleuve":     "#1565C0",
+    "Lac":        "#0288D1",
+    "Plaines":    "#4CAF50",
+    "Collines":   "#8C9B21",
+    "Gouffre":    "#283593",
+    "Marais":     "#2E7D32",
+}
+
+def build_tmr_svg(sel_x=None, sel_y=None, hist_coords=None):
+    """Génère le SVG de la carte TMR 13×15."""
+    CW, CH = 46, 32   # largeur/hauteur d'une cellule
+    OX, OY = 28, 22   # offset pour les labels
+    W = OX + 13 * CW + 4
+    H = OY + 15 * CH + 4
+
+    hist_set = set()
+    if hist_coords:
+        for hc in hist_coords:
+            if len(hc) >= 2 and hc[0] in TMR_X:
+                yn = hc[1:]
+                if yn in TMR_Y:
+                    hist_set.add((hc[0], yn))
+
+    lines = [f'<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="font-family:monospace">']
+    # Fond
+    lines.append(f'<rect width="{W}" height="{H}" fill="#050A14"/>')
+
+    # Colonnes labels (A-M)
+    for xi, lx in enumerate(TMR_X):
+        cx = OX + xi * CW + CW // 2
+        lines.append(f'<text x="{cx}" y="14" text-anchor="middle" fill="#3A5070" font-size="10">{lx}</text>')
+
+    # Lignes labels (1-15)
+    for yi, ly in enumerate(TMR_Y):
+        cy = OY + yi * CH + CH // 2 + 4
+        lines.append(f'<text x="13" y="{cy}" text-anchor="middle" fill="#3A5070" font-size="10">{ly}</text>')
+
+    # Cellules
+    for yi, yv in enumerate(TMR_Y):
+        for xi, xv in enumerate(TMR_X):
+            if not tmr_valid(xi, yi):
+                continue
+            idx  = yi * 13 + xi
+            typ  = _TC_RAW[idx]
+            nom  = _NOM_RAW[idx]
+            col  = TC2.get(typ, "#333")
+            rx   = OX + xi * CW
+            ry   = OY + yi * CH
+
+            is_sel  = (xv == sel_x and yv == sel_y)
+            is_hist = (xv, yv) in hist_set
+
+            fill   = col + "55" if not is_sel else col + "CC"
+            stroke = "#C0913A" if is_sel else (col + "AA" if is_hist else col + "44")
+            sw     = 2 if (is_sel or is_hist) else 1
+
+            lines.append(
+                f'<rect x="{rx+1}" y="{ry+1}" width="{CW-2}" height="{CH-2}" '
+                f'rx="3" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>'
+            )
+            # Label type (3 premières lettres)
+            abr = typ[:3].upper()
+            lines.append(
+                f'<text x="{rx+CW//2}" y="{ry+CH//2+1}" text-anchor="middle" '
+                f'dominant-baseline="middle" fill="{col}" font-size="8" font-weight="bold">{abr}</text>'
+            )
+            # Étoile si hist
+            if is_hist and not is_sel:
+                lines.append(
+                    f'<text x="{rx+CW-5}" y="{ry+9}" text-anchor="middle" fill="#C0913A" font-size="8">★</text>'
+                )
+            # Pion position actuelle
+            if is_sel:
+                lines.append(
+                    f'<circle cx="{rx+CW//2}" cy="{ry+CH//2}" r="7" fill="#C0913A" opacity="0.9"/>'
+                )
+                lines.append(
+                    f'<text x="{rx+CW//2}" y="{ry+CH//2+4}" text-anchor="middle" fill="#050A14" font-size="9" font-weight="bold">⬡</text>'
+                )
+
+    lines.append('</svg>')
+    return '\n'.join(lines)
+
+
 
 # ─── Neon / PostgreSQL ────────────────────────────────────────────────────
 # La connexion string est lue depuis st.secrets["DATABASE_URL"]
@@ -857,100 +951,6 @@ with tab_fat:
 # ══════════════════════════════════════════════════════════════════════════
 # DONNÉES CARTE TMR
 # ══════════════════════════════════════════════════════════════════════════
-# Couleurs par type (version normalisée "Mont" comme dans _TC_RAW)
-TC2 = {
-    "Cité":       "#C9A227",
-    "Désert":     "#C87941",
-    "Désolation": "#6D4C41",
-    "Forêt":      "#2A7D2A",
-    "Mont":       "#7B8D9A",
-    "Sanctuaire": "#8B2FC9",
-    "Nécropole":  "#5C2D91",
-    "Pont":       "#C84315",
-    "Fleuve":     "#1565C0",
-    "Lac":        "#0288D1",
-    "Plaines":    "#4CAF50",
-    "Collines":   "#8C9B21",
-    "Gouffre":    "#283593",
-    "Marais":     "#2E7D32",
-}
-
-def build_tmr_svg(sel_x=None, sel_y=None, hist_coords=None):
-    """Génère le SVG de la carte TMR 13×15."""
-    CW, CH = 46, 32   # largeur/hauteur d'une cellule
-    OX, OY = 28, 22   # offset pour les labels
-    W = OX + 13 * CW + 4
-    H = OY + 15 * CH + 4
-
-    hist_set = set()
-    if hist_coords:
-        for hc in hist_coords:
-            if len(hc) >= 2 and hc[0] in TMR_X:
-                yn = hc[1:]
-                if yn in TMR_Y:
-                    hist_set.add((hc[0], yn))
-
-    lines = [f'<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="font-family:monospace">']
-    # Fond
-    lines.append(f'<rect width="{W}" height="{H}" fill="#050A14"/>')
-
-    # Colonnes labels (A-M)
-    for xi, lx in enumerate(TMR_X):
-        cx = OX + xi * CW + CW // 2
-        lines.append(f'<text x="{cx}" y="14" text-anchor="middle" fill="#3A5070" font-size="10">{lx}</text>')
-
-    # Lignes labels (1-15)
-    for yi, ly in enumerate(TMR_Y):
-        cy = OY + yi * CH + CH // 2 + 4
-        lines.append(f'<text x="13" y="{cy}" text-anchor="middle" fill="#3A5070" font-size="10">{ly}</text>')
-
-    # Cellules
-    for yi, yv in enumerate(TMR_Y):
-        for xi, xv in enumerate(TMR_X):
-            if not tmr_valid(xi, yi):
-                continue
-            idx  = yi * 13 + xi
-            typ  = _TC_RAW[idx]
-            nom  = _NOM_RAW[idx]
-            col  = TC2.get(typ, "#333")
-            rx   = OX + xi * CW
-            ry   = OY + yi * CH
-
-            is_sel  = (xv == sel_x and yv == sel_y)
-            is_hist = (xv, yv) in hist_set
-
-            fill   = col + "55" if not is_sel else col + "CC"
-            stroke = "#C0913A" if is_sel else (col + "AA" if is_hist else col + "44")
-            sw     = 2 if (is_sel or is_hist) else 1
-
-            lines.append(
-                f'<rect x="{rx+1}" y="{ry+1}" width="{CW-2}" height="{CH-2}" '
-                f'rx="3" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>'
-            )
-            # Label type (3 premières lettres)
-            abr = typ[:3].upper()
-            lines.append(
-                f'<text x="{rx+CW//2}" y="{ry+CH//2+1}" text-anchor="middle" '
-                f'dominant-baseline="middle" fill="{col}" font-size="8" font-weight="bold">{abr}</text>'
-            )
-            # Étoile si hist
-            if is_hist and not is_sel:
-                lines.append(
-                    f'<text x="{rx+CW-5}" y="{ry+9}" text-anchor="middle" fill="#C0913A" font-size="8">★</text>'
-                )
-            # Pion position actuelle
-            if is_sel:
-                lines.append(
-                    f'<circle cx="{rx+CW//2}" cy="{ry+CH//2}" r="7" fill="#C0913A" opacity="0.9"/>'
-                )
-                lines.append(
-                    f'<text x="{rx+CW//2}" y="{ry+CH//2+4}" text-anchor="middle" fill="#050A14" font-size="9" font-weight="bold">⬡</text>'
-                )
-
-    lines.append('</svg>')
-    return '\n'.join(lines)
-
-
 # ══════════════════════════════════════════════════════════════════════════
 # TMR (onglet)
 # ══════════════════════════════════════════════════════════════════════════
