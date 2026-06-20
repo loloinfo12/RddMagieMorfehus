@@ -766,10 +766,19 @@ with tab_sorts:
                             elif pct < 60: pc_col = "#f97316"
                             elif pct < 85: pc_col = "#eab308"
                             else:          pc_col = "#22c55e"
+                            # Récupérer le nom de la case pour la pill
+                            cx_p, cy_p = coord[0], coord[1:]
+                            if cx_p in TMR_X and cy_p in TMR_Y:
+                                idx_p = TMR_Y.index(cy_p) * 13 + TMR_X.index(cx_p)
+                                nom_p = _NOM_RAW[idx_p]
+                            else:
+                                nom_p = ''
+                            typ_p = _TC_RAW[idx_p] if cx_p in TMR_X and cy_p in TMR_Y else ''
+                            pill_label = f'{coord}' + (f' {typ_p}' if typ_p else '') + (f' · {nom_p}' if nom_p else '')
                             pills_html += (
                                 f'<span style="background:{tc_color}22;border:1px solid {tc_color}55;'
                                 f'border-radius:6px;padding:4px 8px;font-size:11px;color:{tc_color}">'
-                                f'{coord} <span style="color:{pc_col};font-weight:bold">{pct}%</span></span>'
+                                f'{pill_label} <span style="color:{pc_col};font-weight:bold">{pct}%</span></span>'
                             )
                         pills_html += '</div>'
                         st.markdown(pills_html, unsafe_allow_html=True)
@@ -785,10 +794,11 @@ with tab_sorts:
                                 if cx in TMR_X and cy in TMR_Y:
                                     idx_c = TMR_Y.index(cy) * 13 + TMR_X.index(cx)
                                     nom_c = _NOM_RAW[idx_c]
+                                    typ_c = _TC_RAW[idx_c] if cx in TMR_X and cy in TMR_Y else ''
+                                    label_ctrl = f'{coord}' + (f'  {typ_c}' if typ_c else '') + (f'  ·  {nom_c}' if nom_c else '')
                                     st.markdown(
                                         f'<span style="color:{tc_color};font-size:11px">'
-                                        f'<b>{coord}</b>'
-                                        f'{"  " + nom_c if nom_c else ""}</span>',
+                                        f'<b>{label_ctrl}</b></span>',
                                         unsafe_allow_html=True)
                                 else:
                                     st.markdown(f'<span style="color:{tc_color};font-size:11px"><b>{coord}</b></span>',
