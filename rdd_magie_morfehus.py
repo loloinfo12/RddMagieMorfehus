@@ -581,12 +581,13 @@ with tab_sorts:
                         cases_dispo = [
                             f"{x}{y}" for yi, y in enumerate(TMR_Y)
                             for xi, x in enumerate(TMR_X)
+                            if tmr_valid(xi, yi)
                         ]
                     else:
                         cases_dispo = [
                             f"{x}{y}" for yi, y in enumerate(TMR_Y)
                             for xi, x in enumerate(TMR_X)
-                            if _TC_RAW[yi * 13 + xi] == sort_type
+                            if tmr_valid(xi, yi) and _TC_RAW[yi * 13 + xi] == sort_type
                         ]
 
                     cases_sort = st.session_state.tmr_cases.get(sid, {})
@@ -796,6 +797,12 @@ with tab_fat:
 # ══════════════════════════════════════════════════════════════════════════
 TMR_X = ['A','B','C','D','E','F','G','H','I','J','K','L','M']
 TMR_Y = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
+# La grille a 189 cases : 14 lignes complètes (A-M) + 1 ligne partielle (A15-G15)
+TMR_TOTAL = 189
+
+def tmr_valid(xi, yi):
+    """Retourne True si la case (xi, yi) existe dans la grille (0-indexed)."""
+    return yi * 13 + xi < TMR_TOTAL
 
 _TC_RAW = [
     'Cité','Désert','Désolation','Forêt','Plaines','Nécropole','Plaines','Gouffre','Collines','Sanctuaire','Désolation','Plaines','Fleuve','Collines','Cité',
@@ -839,10 +846,13 @@ def tmr_idx(x_letter, y_num):
     return yi * 13 + xi
 
 def tmr_cell(x_letter, y_num):
-    idx  = tmr_idx(x_letter, y_num)
+    xi = TMR_X.index(x_letter)
+    yi = int(y_num) - 1
+    if not tmr_valid(xi, yi):
+        return {"type": "—", "nom": "", "full": "Case inexistante", "x": x_letter, "y": y_num, "idx": -1}
+    idx  = yi * 13 + xi
     typ  = _TC_RAW[idx]
     nom  = _NOM_RAW[idx]
-    # Construire le nom complet de la case
     full = f"{typ}s {nom}".strip() if nom else typ
     return {"type": typ, "nom": nom, "full": full, "x": x_letter, "y": y_num, "idx": idx}
 
@@ -896,6 +906,8 @@ def build_tmr_svg(sel_x=None, sel_y=None, hist_coords=None):
     # Cellules
     for yi, yv in enumerate(TMR_Y):
         for xi, xv in enumerate(TMR_X):
+            if not tmr_valid(xi, yi):
+                continue
             idx  = yi * 13 + xi
             typ  = _TC_RAW[idx]
             nom  = _NOM_RAW[idx]
@@ -949,7 +961,9 @@ with tab_tmr:
         st.markdown("#### ⬡ Position TMR")
 
         sel_x = st.selectbox("Colonne", TMR_X, key="tmr_sel_x")
-        sel_y = st.selectbox("Ligne",   TMR_Y, key="tmr_sel_y")
+        xi_cur = TMR_X.index(st.session_state.get("tmr_sel_x", "A"))
+        lignes_valides = [y for yi, y in enumerate(TMR_Y) if tmr_valid(xi_cur, yi)]
+        sel_y = st.selectbox("Ligne", lignes_valides, key="tmr_sel_y")
 
         # Info case sélectionnée
         cell = tmr_cell(sel_x, sel_y)
